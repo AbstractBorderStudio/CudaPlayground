@@ -14,7 +14,7 @@ Cuda Samples to mess around with Cuda libs and GL
 int main() {
 	cudaError_t cudaStatus;
 
-	// create matrices
+    // add code here //
 	
 
 	// exit app
