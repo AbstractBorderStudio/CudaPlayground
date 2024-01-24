@@ -1,9 +1,7 @@
-# CudaPlayground
-Cuda Samples to mess around with Cuda libs and GL
+﻿/*
+	Daniel Bologna 2024
+*/
 
-- Code boilerplate for only-cuda code
-
-```cpp
 // system includes
 #include <stdio.h>
 
@@ -29,4 +27,3 @@ int main() {
 
 	return 0;
 }
-```

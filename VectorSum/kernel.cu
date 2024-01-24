@@ -46,7 +46,7 @@ int main() {
 		B[0], B[1], B[2], B[3], B[4],
 		C[0], C[1], C[2], C[3], C[4]);
 
-	// app exit
+	// exit app
 	cudaStatus = cudaDeviceReset();
 	if (cudaStatus != cudaSuccess) {
 		fprintf(stderr, "Error Resetting Cuda Device!\n");
