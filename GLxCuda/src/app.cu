@@ -23,44 +23,18 @@
 */
 
 
-/**************************************
- *        INCLUDE LIBRARIES
-***************************************/
-
-// system includes
-#include <stdlib.h>
-#include <stdio.h>
-
-// vector math includes
-#include "linmath.h"
-
-// opengl includes
-#include <glad/glad.h>
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
-
-// cuda includes
-#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-#include "cuda_gl_interop.h"
+#include <app.h>
 
 /**************************************
  *        VARIABLES
 ***************************************/
-
-// global variables
 static GLFWwindow* window;
 static cudaError_t cudaStatus;
 
-static double lastTime;
-static int nFrames;
+static double m_time, delta_last, m_delta;
 
-// data
-typedef struct
-{
-    float x, y;
-    float r, g, b;
-} v_buffer;
+static double fps_lastTime;
+static int nFrames;
 
 static v_buffer vertices[3] =
 {
@@ -69,63 +43,31 @@ static v_buffer vertices[3] =
     {   0.f,  .5f, 0.f, 0.f, 1.f }
 };
 
+static GLuint vertex_buffer, vertex_shader, fragment_shader, program;
+static GLint mvp_location, vpos_location, vcol_location;
+
+static v_buffer* cuda_vertices;
+
+static bool enabled = false;
+
 /**************************************
  *        CUDA KERNELS
 ***************************************/
 
 __global__
-void UpdateVertexBufferInGPU(v_buffer* buffer)
+void UpdateVertexBufferInGPU(v_buffer* buffer, double time, double delta)
 {
     if (threadIdx.x == 0)
-        buffer[threadIdx.x].x = buffer[threadIdx.x].x - 0.001f;
+        buffer[threadIdx.x].x = sin(time) / 2.f - .5f;
     else if (threadIdx.x == 1)
-        buffer[threadIdx.x].x = buffer[threadIdx.x].x + 0.001f;
+        buffer[threadIdx.x].x = -sin(time) / 2.f + .5f;
     else
-        buffer[threadIdx.x].y = buffer[threadIdx.x].y + 0.001f;
+        buffer[threadIdx.x].y = -sin(time) / 2.f + .5f;
 }
-
-/**************************************
- *        METHODS DEFINITIONS
-***************************************/
-
-static void error_callback(int error, const char* description);
-static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
-static void Init(),
-static void CreateWindow();
-void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void RenderLoop(GLFWwindow* _window);
-void Draw();
-void CleanUp(GLFWwindow* _window);
-void FPSCounter();
 
 /**************************************
  *              MAIN
 ***************************************/
-
-static const char* vertex_shader_text =
-"#version 110\n"
-"uniform mat4 MVP;\n"
-"attribute vec3 vCol;\n"
-"attribute vec2 vPos;\n"
-"varying vec3 color;\n"
-"void main()\n"
-"{\n"
-"    gl_Position = MVP * vec4(vPos, 0.0, 1.0);\n"
-"    // send the vertex color in output for the fragment shader to use\n"
-"    color = vCol;\n"
-"}\n";
-
-static const char* fragment_shader_text =
-"#version 110\n"
-"varying vec3 color;\n"
-"void main()\n"
-"{\n"
-"    // use the vertex color from the vertex buffer\n"
-"    gl_FragColor = vec4(color, 1.0);\n"
-"}\n";
-
-static GLuint vertex_buffer, vertex_shader, fragment_shader, program;
-static GLint mvp_location, vpos_location, vcol_location;
 
 int main(void)
 {
@@ -186,11 +128,10 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GLFW_TRUE);
-    //else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
-    //{
-    //    // call 1 block 10 thread
-    //    test << <1, 10 >> > ();
-    //}
+    else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
+    {
+        enabled = !enabled;
+    }
 }
 
 /**************************************
@@ -210,8 +151,9 @@ static void Init()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);    
 
     // init fps counter
-    lastTime = 0;
+    fps_lastTime = 0;
     nFrames = 0;
+    m_time = delta_last = m_delta = 0.f;
 }
 
 static void CreateWindow()
@@ -233,7 +175,7 @@ static void CreateWindow()
     // load OpenGL functionalities
     gladLoadGL();
     // set
-    glfwSwapInterval(1);
+    glfwSwapInterval(0);
 }
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
@@ -249,17 +191,14 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
  *        RENDER LOOP
 ***************************************/
 
-static v_buffer* cuda_vertices;
-static double* m_time;
-
 void RenderLoop(GLFWwindow* _window)
 {
     // register cuda buffer
     cudaMalloc((void**)&cuda_vertices, 3 * sizeof(v_buffer));
-    cudaMalloc((void**)&m_time, sizeof(double));
 
     while (!glfwWindowShouldClose(_window))
     {
+        ComputeDeltaTime();
         FPSCounter();
 
         // draw screen
@@ -291,13 +230,17 @@ void Draw()
     mat4x4_ortho(p, -ratio, ratio, -1.f, 1.f, 1.f, -1.f);
     mat4x4_mul(mvp, p, m);
 
-    //*m_time = (double)glfwGetTime();
-    //printf("%d\n", *m_time);
+    glUseProgram(program);
+    glUniformMatrix4fv(mvp_location, 1, GL_FALSE, (const GLfloat*)mvp);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
 
     // launch kernel
-    cudaMemcpy((void*)cuda_vertices, vertices, 3 * sizeof(v_buffer), cudaMemcpyHostToDevice);
-    UpdateVertexBufferInGPU << <1, 3 >> > (cuda_vertices);
-    cudaMemcpy(vertices, (void*)cuda_vertices, 3 * sizeof(v_buffer), cudaMemcpyDeviceToHost);
+    if (enabled)
+    {
+        cudaMemcpy((void*)cuda_vertices, vertices, 3 * sizeof(v_buffer), cudaMemcpyHostToDevice);
+        UpdateVertexBufferInGPU << <1, 3 >> > (cuda_vertices, m_time, m_delta);
+        cudaMemcpy(vertices, (void*)cuda_vertices, 3 * sizeof(v_buffer), cudaMemcpyDeviceToHost);
+    }
 
     // update buffer
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
@@ -313,13 +256,25 @@ void Draw()
 /**************************************
  *        APP CLEANUP
 ***************************************/
-
 void CleanUp(GLFWwindow* _window)
 {
+    // destroy window
     glfwDestroyWindow(_window);
 
+    // close app
     glfwTerminate();
     exit(EXIT_SUCCESS);
+}
+
+/**************************************
+ *        DELTA TIME
+***************************************/
+
+void ComputeDeltaTime()
+{
+    m_time = glfwGetTime();
+    m_delta = m_time - delta_last;
+    delta_last = m_time;
 }
 
 /**************************************
@@ -328,13 +283,14 @@ void CleanUp(GLFWwindow* _window)
 
 void FPSCounter()
 {
-    double currentTime = glfwGetTime();
+    // compute frame per second (1000.0 ms)
     static char strFPS[20] = { 0 };
     nFrames++;
-    if (currentTime - lastTime >= 1.0) { // If last prinf() was more than 1 sec ago
-        lastTime = currentTime;
-        sprintf(strFPS, "GLxCuda - FPS: %d", nFrames);
+    if (m_time - fps_lastTime >= 1.0) { // If last prinf() was more than 1 sec ago
+        fps_lastTime = m_time;
+        sprintf(strFPS, "GLxCuda - FPS: %d - Delta: %f", nFrames, m_delta);
         nFrames = 0;
+        // update window title
         glfwSetWindowTitle(window, strFPS);
     }
 }
