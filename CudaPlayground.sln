@@ -7,6 +7,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "VectorSum", "VectorSum\Vect
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MatrixMultiplication", "MatrixMultiplication\MatrixMultiplication.vcxproj", "{56F9074E-04D0-45F2-8D4E-E0AE25B64193}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "GLxCuda", "GLxCuda\GLxCuda.vcxproj", "{1DA6D805-B1E8-4126-B282-4D91B02B575E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,10 @@ Global
 		{56F9074E-04D0-45F2-8D4E-E0AE25B64193}.Debug|x64.Build.0 = Debug|x64
 		{56F9074E-04D0-45F2-8D4E-E0AE25B64193}.Release|x64.ActiveCfg = Release|x64
 		{56F9074E-04D0-45F2-8D4E-E0AE25B64193}.Release|x64.Build.0 = Release|x64
+		{1DA6D805-B1E8-4126-B282-4D91B02B575E}.Debug|x64.ActiveCfg = Debug|x64
+		{1DA6D805-B1E8-4126-B282-4D91B02B575E}.Debug|x64.Build.0 = Debug|x64
+		{1DA6D805-B1E8-4126-B282-4D91B02B575E}.Release|x64.ActiveCfg = Release|x64
+		{1DA6D805-B1E8-4126-B282-4D91B02B575E}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
