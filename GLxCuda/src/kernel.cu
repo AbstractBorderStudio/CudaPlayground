@@ -45,29 +45,7 @@
 #include "cuda_gl_interop.h"
 
 /**************************************
- *        CUDA KERNELS
-***************************************/
-
-__global__
-void test()
-{
-    printf("Ciao\n");
-}
-
-/**************************************
- *        METHODS DEFINITIONS
-***************************************/
-
-static void error_callback(int error, const char* description);
-static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
-static void Init(),
-static void CreateWindow();
-void RenderLoop(GLFWwindow* _window);
-void CleanUp(GLFWwindow* _window);
-void FPSCounter();
-
-/**************************************
- *              MAIN
+ *        VARIABLES
 ***************************************/
 
 // global variables
@@ -78,16 +56,51 @@ static double lastTime;
 static int nFrames;
 
 // data
-static const struct
+typedef struct
 {
     float x, y;
     float r, g, b;
-} vertices[3] =
+} v_buffer;
+
+static v_buffer vertices[3] =
 {
     { -0.5f, -0.5f, 1.f, 0.f, 0.f },
     {  0.5f, -0.5f, 0.f, 1.f, 0.f },
     {   0.f,  .5f, 0.f, 0.f, 1.f }
 };
+
+/**************************************
+ *        CUDA KERNELS
+***************************************/
+
+__global__
+void UpdateVertexBufferInGPU(v_buffer* buffer)
+{
+    if (threadIdx.x == 0)
+        buffer[threadIdx.x].x = buffer[threadIdx.x].x - 0.001f;
+    else if (threadIdx.x == 1)
+        buffer[threadIdx.x].x = buffer[threadIdx.x].x + 0.001f;
+    else
+        buffer[threadIdx.x].y = buffer[threadIdx.x].y + 0.001f;
+}
+
+/**************************************
+ *        METHODS DEFINITIONS
+***************************************/
+
+static void error_callback(int error, const char* description);
+static void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods);
+static void Init(),
+static void CreateWindow();
+void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void RenderLoop(GLFWwindow* _window);
+void Draw();
+void CleanUp(GLFWwindow* _window);
+void FPSCounter();
+
+/**************************************
+ *              MAIN
+***************************************/
 
 static const char* vertex_shader_text =
 "#version 110\n"
@@ -124,24 +137,24 @@ int main(void)
     glGenBuffers(1, &vertex_buffer);
     glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
+    
     vertex_shader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertex_shader, 1, &vertex_shader_text, NULL);
     glCompileShader(vertex_shader);
-
+    
     fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragment_shader, 1, &fragment_shader_text, NULL);
     glCompileShader(fragment_shader);
-
+    
     program = glCreateProgram();
     glAttachShader(program, vertex_shader);
     glAttachShader(program, fragment_shader);
     glLinkProgram(program);
-
+    
     mvp_location = glGetUniformLocation(program, "MVP");
     vpos_location = glGetAttribLocation(program, "vPos");
     vcol_location = glGetAttribLocation(program, "vCol");
-
+    
     glEnableVertexAttribArray(vpos_location);
     glVertexAttribPointer(vpos_location, 2, GL_FLOAT, GL_FALSE,
         sizeof(vertices[0]), (void*)0);
@@ -173,10 +186,11 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 {
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
         glfwSetWindowShouldClose(window, GLFW_TRUE);
-    else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
-    {
-        test << <10, 1 >> > ();
-    }
+    //else if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
+    //{
+    //    // call 1 block 10 thread
+    //    test << <1, 10 >> > ();
+    //}
 }
 
 /**************************************
@@ -212,6 +226,7 @@ static void CreateWindow()
 
     // set glfw window callbacks
     glfwSetKeyCallback(window, key_callback);
+    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
     // create context
     glfwMakeContextCurrent(window);
@@ -221,49 +236,78 @@ static void CreateWindow()
     glfwSwapInterval(1);
 }
 
+void framebuffer_size_callback(GLFWwindow* window, int width, int height)
+{
+    // make sure the viewport matches the new window dimensions; note that width and 
+    // height will be significantly larger than specified on retina displays.
+    glViewport(0, 0, width, height);
+    // Re-render the scene because the current frame was drawn for the old resolution
+    Draw();
+}
+
 /**************************************
  *        RENDER LOOP
 ***************************************/
 
+static v_buffer* cuda_vertices;
+static double* m_time;
+
 void RenderLoop(GLFWwindow* _window)
 {
+    // register cuda buffer
+    cudaMalloc((void**)&cuda_vertices, 3 * sizeof(v_buffer));
+    cudaMalloc((void**)&m_time, sizeof(double));
+
     while (!glfwWindowShouldClose(_window))
     {
         FPSCounter();
 
-        float ratio;
-        int width, height;
-        mat4x4 m, p, mvp;
+        // draw screen
+        Draw();
 
-        glfwGetFramebufferSize(window, &width, &height);
-        ratio = width / (float)height;
-
-        // tell OpenGl the window size ratio
-        glViewport(0, 0, width, height);
-        //glViewport(0, 0, 100, 100);
-
-        // clear screen for the next frame
-        glClear(GL_COLOR_BUFFER_BIT);
-        // color screen
-        glClearColor(0.1, 0.5, 1.0, 1.0);
-
-        mat4x4_identity(m);
-        mat4x4_rotate_Z(m, m, (float)glfwGetTime());
-        mat4x4_ortho(p, -ratio, ratio, -1.f, 1.f, 1.f, -1.f);
-        mat4x4_mul(mvp, p, m);
-
-        glUseProgram(program);
-        glUniformMatrix4fv(mvp_location, 1, GL_FALSE, (const GLfloat*)mvp);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
-
-        
-
-        
-
-        // swap buffer and pull events
-        glfwSwapBuffers(_window);
+        // poll events
         glfwPollEvents();
     }
+
+    // free cuda buffer
+    cudaFree(&cuda_vertices);
+}
+
+void Draw()
+{
+    float ratio;
+    int width, height;
+    mat4x4 m, p, mvp;
+
+    glfwGetFramebufferSize(window, &width, &height);
+    ratio = width / (float)height;
+
+    // clear screen for the next frame
+    glClear(GL_COLOR_BUFFER_BIT);
+    // color screen
+    glClearColor(0.1, 0.5, 1.0, 1.0);
+    
+    mat4x4_identity(m);
+    mat4x4_ortho(p, -ratio, ratio, -1.f, 1.f, 1.f, -1.f);
+    mat4x4_mul(mvp, p, m);
+
+    //*m_time = (double)glfwGetTime();
+    //printf("%d\n", *m_time);
+
+    // launch kernel
+    cudaMemcpy((void*)cuda_vertices, vertices, 3 * sizeof(v_buffer), cudaMemcpyHostToDevice);
+    UpdateVertexBufferInGPU << <1, 3 >> > (cuda_vertices);
+    cudaMemcpy(vertices, (void*)cuda_vertices, 3 * sizeof(v_buffer), cudaMemcpyDeviceToHost);
+
+    // update buffer
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    
+    glUseProgram(program);
+    glUniformMatrix4fv(mvp_location, 1, GL_FALSE, (const GLfloat*)mvp);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    // swap buffer and pull events
+    glfwSwapBuffers(window);
 }
 
 /**************************************
