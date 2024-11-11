@@ -30,3 +30,7 @@ int main() {
 	return 0;
 }
 ```
+
+# Cuda Version
+
+Install `Cuda Toolkit 12.3`
